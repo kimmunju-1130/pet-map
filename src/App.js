@@ -1,0 +1,308 @@
+import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Popup } from 'react-leaflet';
+import { useState, useEffect } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+const BASE_DATA = {
+  '강남구': { hospital:98, park:90, transport:95, quiet:60 },
+  '서초구': { hospital:96, park:92, transport:93, quiet:65 },
+  '마포구': { hospital:91, park:88, transport:90, quiet:70 },
+  '용산구': { hospital:92, park:88, transport:88, quiet:68 },
+  '송파구': { hospital:91, park:90, transport:90, quiet:72 },
+  '성동구': { hospital:88, park:86, transport:85, quiet:75 },
+  '광진구': { hospital:83, park:88, transport:82, quiet:78 },
+  '종로구': { hospital:90, park:85, transport:87, quiet:62 },
+  '중구':   { hospital:84, park:75, transport:88, quiet:60 },
+  '동작구': { hospital:84, park:84, transport:82, quiet:80 },
+  '관악구': { hospital:80, park:80, transport:80, quiet:76 },
+  '영등포구':{ hospital:83, park:78, transport:88, quiet:65 },
+  '강동구': { hospital:82, park:86, transport:80, quiet:82 },
+  '서대문구':{ hospital:82, park:80, transport:80, quiet:78 },
+  '성북구': { hospital:80, park:82, transport:78, quiet:80 },
+  '은평구': { hospital:73, park:78, transport:75, quiet:85 },
+  '양천구': { hospital:78, park:76, transport:78, quiet:82 },
+  '강서구': { hospital:76, park:78, transport:76, quiet:80 },
+  '노원구': { hospital:74, park:82, transport:74, quiet:84 },
+  '도봉구': { hospital:72, park:80, transport:72, quiet:86 },
+  '동대문구':{ hospital:79, park:72, transport:80, quiet:72 },
+  '중랑구': { hospital:70, park:74, transport:72, quiet:80 },
+  '강북구': { hospital:68, park:74, transport:70, quiet:84 },
+  '구로구': { hospital:71, park:72, transport:74, quiet:76 },
+  '금천구': { hospital:66, park:68, transport:70, quiet:74 },
+};
+
+const GU_CENTERS = {
+  '강남구':[37.5172,127.0473],'서초구':[37.4837,127.0324],'마포구':[37.5663,126.9010],
+  '용산구':[37.5326,126.9906],'송파구':[37.5145,127.1059],'성동구':[37.5633,127.0371],
+  '광진구':[37.5385,127.0823],'종로구':[37.5735,126.9790],'중구':[37.5640,126.9975],
+  '동작구':[37.5124,126.9393],'관악구':[37.4784,126.9516],'영등포구':[37.5264,126.8963],
+  '강동구':[37.5301,127.1238],'서대문구':[37.5791,126.9368],'성북구':[37.5894,127.0167],
+  '은평구':[37.6026,126.9291],'양천구':[37.5270,126.8561],'강서구':[37.5509,126.8495],
+  '노원구':[37.6541,127.0568],'도봉구':[37.6688,127.0471],'동대문구':[37.5744,127.0397],
+  '중랑구':[37.6063,127.0927],'강북구':[37.6396,127.0257],'구로구':[37.4954,126.8877],
+  '금천구':[37.4600,126.9001],
+};
+
+const SLIDER_CONFIG = [
+  { key:'park',      label:'공원',       icon:'🌳', color:'#4CAF50' },
+  { key:'hospital',  label:'병원',       icon:'🏥', color:'#2196F3' },
+  { key:'transport', label:'교통',       icon:'🚌', color:'#FF9800' },
+  { key:'quiet',     label:'조용한 지역', icon:'🏠', color:'#9C27B0' },
+];
+
+const CARD_DETAILS = [
+  { key:'park',      icon:'🌳', label:'공원/산책로' },
+  { key:'quiet',     icon:'🏡', label:'조용한 주택가' },
+  { key:'hospital',  icon:'🏥', label:'동물병원 접근성' },
+  { key:'transport', icon:'🚌', label:'생활 편의성' },
+];
+
+function calcScore(data, weights) {
+  const total = Object.values(weights).reduce((a,b)=>a+b, 0);
+  if (total === 0) return 0;
+  return Math.round(
+    Object.keys(weights).reduce((sum, k) => sum + data[k] * weights[k], 0) / total
+  );
+}
+
+function scoreToFace(score) {
+  if (score >= 88) return { img:'/face-good.png', color:'#43A047', label:'최고예요!' };
+  if (score >= 80) return { img:'/face-soso.png', color:'#FB8C00', label:'좋아요!' };
+  return { img:'/face-bad.png', color:'#E53935', label:'아쉬워요' };
+}
+
+function makeIcon(rank, score, hovered = false) {
+  const { img, color } = scoreToFace(score);
+  const size = hovered ? 56 : 40;
+  const shadow = hovered ? '0 6px 20px rgba(0,0,0,.3)' : '0 2px 8px rgba(0,0,0,.2)';
+
+  return L.divIcon({
+    className: 'custom-pin',
+    html: `
+      <div style="
+        width:${size}px;height:${size}px;background:#fff;
+        border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+        display:flex;align-items:center;justify-content:center;
+        box-shadow:${shadow};border:3px solid ${color};cursor:pointer;">
+        <div style="
+          transform:rotate(45deg);width:${size*0.65}px;height:${size*0.65}px;
+          border-radius:50%;overflow:hidden;background:transparent;
+          display:flex;align-items:center;justify-content:center;">
+          <img src="${img}" style="width:100%;height:100%;object-fit:contain;background:transparent;display:block;"/>
+        </div>
+      </div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size],
+  });
+}
+
+// ✅ 네모 툴팁 제거용 전역 스타일 (index.css 또는 여기에 삽입)
+const tooltipStyle = `
+  .leaflet-tooltip.custom-tooltip {
+    background: rgba(0,0,0,0.65) !important;
+    color: #fff !important;
+    border: none !important;
+    outline: none !important;
+    border-radius: 8px !important;
+    padding: 4px 10px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    box-shadow: none !important;
+    -webkit-box-shadow: none !important;
+    backdrop-filter: none !important;
+    white-space: nowrap !important;
+    pointer-events: none !important;
+    opacity: 1 !important;
+  }
+  .leaflet-tooltip-pane .custom-tooltip {
+    border: none !important;
+    box-shadow: none !important;
+  }
+`;
+
+export default function App() {
+  const [geojson, setGeojson]   = useState(null);
+  const [geoKey, setGeoKey]     = useState(0);
+  const [weights, setWeights]   = useState({ park:3, hospital:3, transport:3, quiet:3 });
+  const [scores, setScores]     = useState({});
+  const [topList, setTopList]   = useState([]);
+  const [selected, setSelected] = useState(null);
+
+  useEffect(() => {
+    fetch('/seoul_gu.geojson').then(r=>r.json()).then(d=>{ setGeojson(d); setGeoKey(k=>k+1); });
+  }, []);
+
+  useEffect(() => {
+    const s = {};
+    Object.entries(BASE_DATA).forEach(([n,d]) => { s[n] = calcScore(d, weights); });
+    setScores(s);
+    setTopList(Object.entries(s).sort((a,b)=>b[1]-a[1]).slice(0,5));
+    setGeoKey(k=>k+1);
+  }, [weights]);
+
+  const style = (feature) => {
+    const name = feature.properties.SIG_KOR_NM || feature.properties.name;
+    const score = scores[name] || 60;
+    return {
+      fillColor: score >= 88 ? '#43A047' : score >= 80 ? '#81C784' : score >= 72 ? '#C8E6C9' : '#E8F5E9',
+      fillOpacity: 0.55, color:'#aaa', weight:1,
+    };
+  };
+
+  const onEachFeature = (feature, layer) => {
+    const name = feature.properties.SIG_KOR_NM || feature.properties.name;
+    layer.on({
+      click: () => setSelected({ name, score: scores[name], ...BASE_DATA[name] }),
+      // ✅ hover 시 원래 스타일 기반으로 변경 후 복구
+      mouseover: e => e.target.setStyle({ fillOpacity:0.8, weight:2, color:'#555' }),
+      mouseout:  e => e.target.setStyle({ fillOpacity:0.55, weight:1, color:'#aaa' }),
+    });
+    // ✅ className 지정으로 네모 박스 스타일 제거
+    layer.bindTooltip(name, { direction:'center', className:'custom-tooltip' });
+  };
+
+  return (
+    <div style={{ fontFamily:'"Luckiest Guy",cursive !important', background:'#E9E9E9', minHeight:'100vh', padding:'16px 20px' }}>
+
+      {/* ✅ 툴팁 스타일 주입 */}
+      <style>{tooltipStyle}</style>
+
+      {/* 헤더 */}
+      <div style={{ textAlign:'center', marginBottom:16 }}>
+        <div style={{ fontSize:60, fontWeight:800, color:'#1A1A1A', display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}>
+          <img src="/MAIN.png" alt="강아지" style={{ width:130, height:120, objectFit:'contain' }}/> Paw-Data
+          <img src="/paw-print.png" style={{ width:70, height:100, objectFit:'contain', filter:'brightness(0)' }}/>
+        </div>
+        <p style={{ color:'#888', fontSize:12, marginTop:4 }}>항목별 가중치 조절로 나에게 맞는 동네를 찾아보세요</p>
+      </div>
+
+      {/* 상단: 슬라이더 + 지도 */}
+      <div style={{ display:'grid', gridTemplateColumns:'280px 1fr', gap:14, marginBottom:14 }}>
+
+        {/* 슬라이더 카드 */}
+        <div style={{ background:'#fff', borderRadius:20, padding:20, boxShadow:'0 2px 10px rgba(0,0,0,.07)' }}>
+          <div style={{ fontSize:16, fontWeight:700, marginBottom:16, color:'#222' }}>⚖️ 가중치 설정</div>
+          {SLIDER_CONFIG.map(({ key, label, icon, color }) => (
+            <div key={key} style={{ marginBottom:16 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:5 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <span style={{ fontSize:18 }}>{icon}</span>
+                  <span style={{ fontSize:13, fontWeight:600, color:'#333' }}>{label}</span>
+                </div>
+                <span style={{ fontSize:13, fontWeight:700, color, background:`${color}18`, borderRadius:8, padding:'2px 8px' }}>{weights[key]}</span>
+              </div>
+              <input type="range" min={0} max={5} value={weights[key]}
+                onChange={e => setWeights(w=>({...w,[key]:Number(e.target.value)}))}
+                style={{ width:'100%', accentColor:color, height:4 }}
+              />
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'#BBB', marginTop:2 }}>
+                <span>0 무관</span><span>5 매우 중요</span>
+              </div>
+            </div>
+          ))}
+          <button
+            onClick={()=>setWeights({park:3,hospital:3,transport:3,quiet:3})}
+            style={{ width:'100%', padding:'11px', background:'#333', color:'#fff',
+              border:'none', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', marginTop:4, letterSpacing:'.5px' }}>
+            🔍 나에게 맞는 거주지 찾기
+          </button>
+        </div>
+
+        {/* 지도 카드 */}
+        <div style={{ background:'#fff', borderRadius:20, overflow:'hidden', boxShadow:'0 2px 10px rgba(0,0,0,.07)' }}>
+          <div style={{ padding:'12px 16px', borderBottom:'1px solid #F0F0F0', fontWeight:700, fontSize:14, color:'#333' }}>
+            🗺️ GIS 지도
+          </div>
+          <div style={{ height:520 }}>
+            <MapContainer
+              center={[37.545, 126.986]}
+              zoom={11}
+              // ✅ 서울만 보이도록 제한
+              minZoom={10}
+              maxZoom={18}
+              maxBounds={[[37.2, 126.4], [37.9, 127.5]]}
+              maxBoundsViscosity={1.0}
+              style={{ height:'100%', width:'100%' }}
+            >
+              <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"/>
+              {geojson && <GeoJSON key={geoKey} data={geojson} style={style} onEachFeature={onEachFeature}/>}
+
+              {Object.entries(scores).map(([name, score]) => {
+                const pos = GU_CENTERS[name];
+                if (!pos || score < 78) return null;
+                const r = (score - 70) * 0.9;
+                return [
+                  <CircleMarker key={name+'-o'} center={pos} radius={r+6}
+                    pathOptions={{ color:'none', fillColor:'#FF5722', fillOpacity:0.06 }}/>,
+                  <CircleMarker key={name+'-i'} center={pos} radius={r}
+                    pathOptions={{ color:'none', fillColor:'#FF3D00', fillOpacity:0.15 }}/>,
+                ];
+              })}
+
+              {topList.map(([name], i) => {
+                const pos = GU_CENTERS[name];
+                const score = scores[name];
+                const { img, color, label } = scoreToFace(score);
+                if (!pos) return null;
+                return (
+                  <Marker key={name} position={pos}
+                    icon={makeIcon(i, score)}
+                    eventHandlers={{
+                      mouseover: (e) => { e.target.setIcon(makeIcon(i, score, true)); },
+                      mouseout:  (e) => { e.target.setIcon(makeIcon(i, score, false)); },
+                    }}>
+                    <Popup className="custom-popup">
+                      <div style={{ textAlign:'center', padding:'4px 8px', minWidth:150 }}>
+                        <img src={img} alt={name} style={{ width:52, height:52, objectFit:'contain',
+                          background:'transparent', borderRadius:'50%', display:'block', margin:'0 auto' }}/>
+                        <div style={{ fontWeight:700, fontSize:15, margin:'4px 0' }}>{name}</div>
+                        <div style={{ fontSize:22, fontWeight:800, color }}>{score}점</div>
+                        <div style={{ fontSize:12, color:'#888', marginTop:2 }}>{label}</div>
+                      </div>
+                    </Popup>
+                  </Marker>
+                );
+              })}
+            </MapContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* 하단: 추천 카드 */}
+      <div style={{ background:'#fff', borderRadius:20, padding:20, boxShadow:'0 2px 10px rgba(0,0,0,.07)' }}>
+        <div style={{ fontSize:15, fontWeight:700, marginBottom:14, color:'#222' }}>🏆 추천 지역 정보 제공</div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10 }}>
+          {topList.map(([name, score], i) => {
+            const d = BASE_DATA[name];
+            return (
+              <div key={name}
+                onClick={()=>setSelected({name,score,...d})}
+                style={{
+                  background: selected?.name===name ? '#FFF3E0' : i===0 ? '#FFF8F0':'#FAFAFA',
+                  borderRadius:14, padding:14, cursor:'pointer',
+                  border: selected?.name===name ? '2px solid #FF9800' : i===0 ? '2px solid #FFB74D':'2px solid #EFEFEF',
+                  transition:'.15s'
+                }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                  <div style={{ background:i===0?'#E53935':i<3?'#EF5350':'#BDBDBD',
+                    color:'#fff', borderRadius:'50%', width:20, height:20,
+                    display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, flexShrink:0 }}>{i+1}</div>
+                  <span style={{ fontWeight:700, fontSize:13 }}>{name}</span>
+                </div>
+                <div style={{ fontSize:24, fontWeight:800, color:i===0?'#E53935':'#333', marginBottom:8 }}>{score}점</div>
+                <div style={{ borderTop:'1px solid #F0F0F0', paddingTop:8 }}>
+                  {CARD_DETAILS.map(({key,icon,label})=>(
+                    <div key={key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, color:'#666', marginBottom:3 }}>
+                      <span>{icon} {label}</span>
+                      <span style={{ fontWeight:700, color:'#444' }}>{d[key]}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
