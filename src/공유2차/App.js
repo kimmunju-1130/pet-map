@@ -116,9 +116,6 @@ const tooltipStyle = `
   .leaflet-tooltip.custom-tooltip::before { display:none !important; }
 `;
 
-// ── API URL (백엔드 연결 시 .env에 REACT_APP_API_URL 설정) ──
-const API = process.env.REACT_APP_API_URL || '';
-
 const tabBtnStyle = (active) => ({
   padding: '8px 22px', border: 'none', borderRadius: 10,
   fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all .15s',
@@ -331,7 +328,7 @@ export default function App() {
       )}
 
       {/* ── 상권 분석 대시보드 ── */}
-      {tab === 'dashboard' && <Dashboard API={API} />}
+      {tab === 'dashboard' && <Dashboard />}
 
       {/* ── 시장 분석 ── */}
       {tab === 'market' && <MarketDashboard />}
