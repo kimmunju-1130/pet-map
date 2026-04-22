@@ -208,8 +208,10 @@ export default function MarketDashboard() {
           <div style={{ fontWeight:900, fontSize:16, color:'#1E293B', marginBottom:4 }}>
             분야별 키워드 평균 검색량
           </div>
-          <div style={{ fontSize:12, color:'#94A3B8', marginBottom:4 }}>
-            항목 클릭 → 세부 키워드 트리맵 팝업
+          {/* 수정 - 더 눈에 띄게 */}
+          <div style={{ fontSize:12, color:'#fff', background:'#1A1A1A', borderRadius:8,
+            padding:'4px 10px', marginBottom:4, display:'inline-block', fontWeight:600 }}>
+            👆 항목을 클릭하면 세부 검색량을 볼 수 있어요
           </div>
           <ResponsiveContainer width="100%" height="88%">
             <PieChart>
@@ -218,7 +220,7 @@ export default function MarketDashboard() {
                 innerRadius={75} outerRadius={135}
                 paddingAngle={3} dataKey="value"
                 onClick={handlePieClick}
-                style={{ cursor:'pointer' }}
+                style={{ cursor:'pointer',outline:'none' }}
                 label={({ name, value }) => `${value}%`}
                 labelLine
               >
@@ -294,9 +296,9 @@ export default function MarketDashboard() {
         </div>
       </div>
 
-      <footer style={{ textAlign:'center', color:'#CBD5E1', fontWeight:700, letterSpacing:3, fontSize:11, padding:'20px 0', textTransform:'uppercase', fontStyle:'italic' }}>
+      {/*<footer style={{ textAlign:'center', color:'#CBD5E1', fontWeight:700, letterSpacing:3, fontSize:11, padding:'20px 0', textTransform:'uppercase', fontStyle:'italic' }}>
         © Paw-Data Analytics Framework Final Build
-      </footer>
+      </footer>*/}
 
       {/* ── 트리맵 팝업 모달 ── */}
       {modal && cat && (
@@ -307,7 +309,7 @@ export default function MarketDashboard() {
         }}>
           <div onClick={e => e.stopPropagation()} style={{
             background:'#fff', borderRadius:24, padding:32,
-            width:'min(880px, 92vw)', maxHeight:'88vh',
+            width:'min(700px, 92vw)', maxHeight:'88vh',
             overflow:'auto', boxShadow:'0 24px 60px rgba(0,0,0,0.25)',
             position:'relative',
           }}>
@@ -332,12 +334,13 @@ export default function MarketDashboard() {
             </div>
 
             {/* 트리맵 */}
-            <div style={{ height:420, borderRadius:16, overflow:'hidden' }}>
+            <div style={{ height:600, borderRadius:16, overflow:'hidden' }}>
               <ResponsiveContainer width="100%" height="100%">
                 <Treemap
                   data={cat.treemap}
                   dataKey="size"
-                  aspectRatio={4/3}
+                  aspectRatio={1}     // ← 1:1 정사각형
+                  isAnimationActive={false} // 애니메이션 끔 (빠르게 렌더링)
                   content={<CustomTreemapContent/>}
                 >
                   <Tooltip

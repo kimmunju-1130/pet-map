@@ -313,6 +313,10 @@ export default function App() {
                         display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, flexShrink:0 }}>{i+1}</div>
                       <span style={{ fontWeight:700, fontSize:13 }}>{name}</span>
                     </div>
+                    {/* ← 이 줄 추가 */}
+                    <div style={{ fontSize:10, color:'#94A3B8', marginBottom:6 }}>
+                      🗺️ 클릭하면 지도에서 확인
+                    </div>
                     <div style={{ fontSize:24, fontWeight:800, color:i===0?'#E53935':'#333', marginBottom:8 }}>{score}점</div>
                     <div style={{ borderTop:'1px solid #F0F0F0', paddingTop:8 }}>
                       {CARD_DETAILS.map(({key,icon,label})=>(

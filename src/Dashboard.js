@@ -402,7 +402,7 @@ export default function Dashboard({ API }) {
   );
 
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'210px 1fr 1fr', gap:14, alignItems:'start' }}>
+    <div style={{ display:'grid', gridTemplateColumns:'210px 1fr 1fr', gap:14, alignItems:'stretch' }}>
 
       {/* ── 왼쪽 패널 ── */}
       <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
@@ -410,7 +410,7 @@ export default function Dashboard({ API }) {
         {/* 구 선택 카드 */}
         <div className="db-card">
           <div style={{ fontWeight:800, fontSize:14, color:'#1A1A1A', marginBottom:10 }}>
-            지역 선택 (Select Region)
+            지역 선택
           </div>
 
           {/* 드롭다운 */}
@@ -418,10 +418,12 @@ export default function Dashboard({ API }) {
             <div onClick={()=>setDropOpen(v=>!v)} style={{
               border:'1.5px solid #E0DEDB', borderRadius:10, padding:'8px 12px',
               display:'flex', alignItems:'center', justifyContent:'space-between',
-              cursor:'pointer', fontSize:12, fontWeight:600, color:'#555', background:'#fff',
-            }}>
-              구를 선택하세요 (Select Gu)
+              cursor:'pointer', fontSize:12, fontWeight:600, color:'#555', background:'#fff',center:'center',
+            }}>구를 선택하세요
               <span style={{ fontSize:10 }}>▼</span>
+            </div>
+            <div style={{ fontSize:11, color:'#94A3B8', marginTop:4 }}>
+              최대 3개까지 선택 가능합니다
             </div>
             {dropOpen && (
               <div style={{
