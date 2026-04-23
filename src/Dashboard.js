@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, CircleMarker, Tooltip as LeafletTooltip } from
 import 'leaflet/dist/leaflet.css';
 import './Dashboard.css';
 
-// ── 서울 25개 구 fallback 데이터 ──────────────────────
+// ── 서울 25개 구 데이터 ────────────────────────────────
 const GU_COLORS = {
   '강남구':'#E24B4A','서초구':'#378ADD','송파구':'#EF9F27','마포구':'#D4537E',
   '용산구':'#4CAF50','성동구':'#9C27B0','광진구':'#FF5722','종로구':'#00BCD4',
@@ -15,7 +15,7 @@ const GU_COLORS = {
   '금천구':'#9CCC65',
 };
 
-const FALLBACK_GU_DATA = {
+const GU_DATA = {
   '강남구':   { center:[37.5172,127.0473], neighborhoods:[
     {name:'역삼동',  의료건강:15,위생:12,일반용품:6,미용돌봄:3,반려동물수:1800},
     {name:'삼성동',  의료건강:12,위생:10,일반용품:5,미용돌봄:2,반려동물수:1500},
@@ -143,7 +143,7 @@ const FALLBACK_GU_DATA = {
   ]},
 };
 
-const ALL_GUS = Object.keys(FALLBACK_GU_DATA);
+const ALL_GUS = Object.keys(GU_DATA);
 
 const CAT_COLORS = {
   의료건강:'#E24B4A', 위생:'#378ADD', 일반용품:'#EF9F27', 미용돌봄:'#D4537E', 반려동물수:'#FAC775',
@@ -182,21 +182,34 @@ const dataLabelPlugin = {
   },
 };
 
-// ── 차트 데이터 빌드 (구별 평균) ──────────────────────
-function buildChartData(selectedGus, guData) {
+// ── 차트 데이터 빌드 ───────────────────────────────────
+function buildChartData(selectedGus, guData, apiData) {
+  console.log('apiData 상태:', apiData);
   const labels = [];
   const d = { 의료건강:[], 위생:[], 일반용품:[], 미용돌봄:[], 반려동물수:[] };
 
   selectedGus.forEach(gu => {
-    const nbs = guData[gu]?.neighborhoods || [];
-    if (!nbs.length) return;
     labels.push(gu);
-    const avg = (key) => Math.round(nbs.reduce((s,n) => s + (n[key]||0), 0) / nbs.length);
-    d.의료건강.push(avg('의료건강'));
-    d.위생.push(avg('위생'));
-    d.일반용품.push(avg('일반용품'));
-    d.미용돌봄.push(avg('미용돌봄'));
-    d.반려동물수.push(avg('반려동물수'));
+    if (apiData && apiData[gu]) {
+      console.log(`✅ ${gu} → API 데이터:`, apiData[gu]);
+      // API 데이터 직접 사용
+      const row = apiData[gu];
+      d.의료건강.push(row.의료건강   || 0);
+      d.위생.push(row.위생           || 0);
+      d.일반용품.push(row.일반용품   || 0);
+      d.미용돌봄.push(row.미용돌봄   || 0);
+      d.반려동물수.push(row.반려동물수|| 0);
+    } else {
+      console.log(`⚠️ ${gu} → fallback 하드코딩 사용`);
+      // fallback: 하드코딩 평균
+      const nbs = guData[gu]?.neighborhoods || [];
+      const avg = (key) => nbs.length ? Math.round(nbs.reduce((s,n)=>s+(n[key]||0),0)/nbs.length) : 0;
+      d.의료건강.push(avg('의료건강'));
+      d.위생.push(avg('위생'));
+      d.일반용품.push(avg('일반용품'));
+      d.미용돌봄.push(avg('미용돌봄'));
+      d.반려동물수.push(avg('반려동물수'));
+    }
   });
 
   return {
@@ -218,18 +231,26 @@ function buildChartData(selectedGus, guData) {
 }
 
 // ── 점수 계산 ──────────────────────────────────────────
-function computeScore(selectedGus, guData) {
+function computeScore(selectedGus, guData, apiData) {
   if (!selectedGus.length) return { score:0, animals:'0마리', isGood:false };
   let total=0, count=0, animalTotal=0;
   selectedGus.forEach(gu => {
-    (guData[gu]?.neighborhoods || []).forEach(n => {
-      total += (n.의료건강||0) + (n.위생||0) + (n.일반용품||0) + (n.미용돌봄||0);
-      animalTotal += (n.반려동물수||0);
+    if (apiData && apiData[gu]) {
+      const row = apiData[gu];
+      total += (row.의료건강||0) + (row.위생||0) + (row.일반용품||0) + (row.미용돌봄||0);
+      animalTotal += (row.반려동물수||0);
       count++;
-    });
+    } else {
+      (guData[gu]?.neighborhoods || []).forEach(n => {
+        total += (n.의료건강||0)+(n.위생||0)+(n.일반용품||0)+(n.미용돌봄||0);
+        animalTotal += (n.반려동물수||0);
+        count++;
+      });
+    }
   });
   if (!count) return { score:0, animals:'0마리', isGood:false };
-  const avg = Math.round((total/(count*4))/20*100);
+  const maxPerGu = 300; // 의료건강 최대 약 251 기준
+  const avg = Math.min(100, Math.round((total/count) / maxPerGu * 100));
   return { score:avg, animals:Math.round(animalTotal/count).toLocaleString()+'마리', isGood:avg>=55 };
 }
 
@@ -239,55 +260,32 @@ export default function Dashboard({ API }) {
   const chartRef  = useRef(null);
   const dropRef   = useRef(null);
 
-  // ── 상태 ──────────────────────────────────────────
-  const [guData,      setGuData]      = useState(FALLBACK_GU_DATA); // fallback → API로 교체
-  const [loading,     setLoading]     = useState(!!API);             // API 있으면 로딩 시작
+  const [apiData,     setApiData]     = useState(null);   // API 실제 데이터
+  const [loading,     setLoading]     = useState(!!API);
   const [selectedGus, setSelectedGus] = useState(['강남구','서초구','송파구']);
   const [showLabels,  setShowLabels]  = useState(true);
   const [dropOpen,    setDropOpen]    = useState(false);
 
-  const scoreInfo = computeScore(selectedGus, guData);
+  const scoreInfo = computeScore(selectedGus, GU_DATA, apiData);
 
-  // ── API에서 데이터 로드 ────────────────────────────
+  // ── API에서 데이터 로드 ──────────────────────────────
   useEffect(() => {
     if (!API) { setLoading(false); return; }
-
     fetch(`${API}/api/dashboard`)
       .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(data => {
+        console.log('API raw data:', data);        // ← 추가
+        console.log('첫번째 row:', data[0]);        // ← 추가
+        console.log('gu 필드값:', data[0]?.gu);    // ← 추가
         if (!data || !data.length) return;
-
-        // API 응답: [{ gu, name, 의료건강, 위생, 일반용품, 미용돌봄, 반려동물수 }]
-        // 구별로 그룹화해서 neighborhoods 업데이트
+        // 구 이름을 키로 하는 객체로 변환
         const byGu = {};
-        data.forEach(row => {
-          const guName = row.gu;
-          if (!guName) return;
-          if (!byGu[guName]) byGu[guName] = [];
-          byGu[guName].push({
-            name:         row.name         || '',
-            의료건강:     row['의료건강']   || 0,
-            위생:         row['위생']       || 0,
-            일반용품:     row['일반용품']   || 0,
-            미용돌봄:     row['미용돌봄']   || 0,
-            반려동물수:   row['반려동물수'] || 0,
-          });
-        });
-
-        // fallback 데이터 기반으로 neighborhoods만 API 데이터로 교체
-        const updated = { ...FALLBACK_GU_DATA };
-        Object.keys(byGu).forEach(gu => {
-          if (updated[gu]) {
-            updated[gu] = { ...updated[gu], neighborhoods: byGu[gu] };
-          }
-        });
-
-        setGuData(updated);
+        data.forEach(row => { byGu[row.name] = row; });
+        console.log('변환된 byGu 키:', Object.keys(byGu)); // ← 추가
+        setApiData(byGu);
         console.log('✅ Dashboard 데이터 API 로드 완료');
       })
-      .catch(() => {
-        console.warn('⚠️ Dashboard API 실패 → fallback 데이터 사용');
-      })
+      .catch(() => console.warn('⚠️ Dashboard API 실패 → fallback 데이터 사용'))
       .finally(() => setLoading(false));
   }, [API]);
 
@@ -296,9 +294,8 @@ export default function Dashboard({ API }) {
     if (loading) return;
     Chart.register(dataLabelPlugin);
     if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
-
     const chart = new Chart(canvasRef.current, {
-      data: buildChartData(selectedGus, guData),
+      data: buildChartData(selectedGus, GU_DATA, apiData),
       options: {
         responsive:true, maintainAspectRatio:false,
         plugins: {
@@ -321,13 +318,15 @@ export default function Dashboard({ API }) {
         scales:{
           y:{ type:'linear', position:'left',
             title:{display:true,text:'단위 : 개',align:'start',font:{size:11},color:'#888'},
-            min:0, max:20, ticks:{stepSize:5,font:{size:11},color:'#666'},
+            min:0,
+            // max 제거 → 자동 맞춤
+            ticks:{font:{size:11},color:'#666'},
             grid:{color:'rgba(0,0,0,0.06)'},
           },
           y1:{ type:'linear', position:'right',
             title:{display:true,text:'단위 : 마리',align:'start',font:{size:11},color:'#888'},
-            min:0, max:2000,
-            ticks:{stepSize:500,font:{size:11},color:'#666',callback:v=>v.toLocaleString()},
+            min:0,
+            ticks:{font:{size:11},color:'#666',callback:v=>v.toLocaleString()},
             grid:{drawOnChartArea:false},
           },
           x:{ ticks:{autoSkip:false,font:{size:9},color:'#333',maxRotation:45}, grid:{display:false} },
@@ -336,27 +335,27 @@ export default function Dashboard({ API }) {
       },
     });
     chartRef.current = chart;
-    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+    return () => { if(chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
     // eslint-disable-next-line
-  }, [loading, guData]);
+  }, [loading, apiData]);
 
-  // ── 구 변경 시 차트 업데이트 ──────────────────────
+  // ── 구 변경 시 차트 업데이트 ─────────────────────
   useEffect(() => {
     if (!chartRef.current) return;
-    const nd = buildChartData(selectedGus, guData);
+    const nd = buildChartData(selectedGus, GU_DATA, apiData);
     chartRef.current.data.labels = nd.labels;
     chartRef.current.data.datasets = nd.datasets;
     chartRef.current.update();
-  }, [selectedGus, guData]);
+  }, [selectedGus, apiData]);
 
-  // ── 라벨 토글 ─────────────────────────────────────
+  // 라벨 토글
   useEffect(() => {
     if (!chartRef.current) return;
     chartRef.current.options.plugins.dataLabels.show = showLabels;
     chartRef.current.update();
   }, [showLabels]);
 
-  // ── 드롭다운 외부 클릭 닫기 ───────────────────────
+  // 드롭다운 외부 클릭 닫기
   useEffect(() => {
     const h = (e) => { if (dropRef.current && !dropRef.current.contains(e.target)) setDropOpen(false); };
     document.addEventListener('mousedown', h);
@@ -371,18 +370,15 @@ export default function Dashboard({ API }) {
     });
   };
 
-  // ── 지도 마커 ─────────────────────────────────────
+  // 지도 마커
   const mapMarkers = [];
   selectedGus.forEach(gu => {
-    const entry = guData[gu];
-    if (!entry) return;
-    const [lat, lng] = entry.center;
+    const [lat, lng] = GU_DATA[gu].center;
     const guColor = GU_COLORS[gu];
-    const nbs = entry.neighborhoods || [];
-    const avgAnimal = nbs.length ? Math.round(nbs.reduce((s,n)=>s+(n.반려동물수||0),0)/nbs.length) : 0;
-    mapMarkers.push({ lat, lng, radius:Math.max(18,avgAnimal/65), color:guColor, fill:guColor, fillOpacity:0.18, weight:2, label:gu });
+    const nbs = GU_DATA[gu].neighborhoods;
+    const avgAnimal = Math.round(nbs.reduce((s,n)=>s+n.반려동물수,0)/nbs.length);
+    mapMarkers.push({ lat, lng, radius:Math.max(18,avgAnimal/65), color:guColor, fill:guColor, fillOpacity:0.18, weight:2, label:gu, isBg:true });
     Object.keys(CAT_OFFSETS).forEach(cat => {
-      if (!nbs.length) return;
       const avg = Math.round(nbs.reduce((s,n)=>s+(n[cat]||0),0)/nbs.length);
       const [dlat,dlng] = CAT_OFFSETS[cat];
       const r = cat==='반려동물수' ? avg/85 : avg*1.4;
@@ -394,15 +390,8 @@ export default function Dashboard({ API }) {
     });
   });
 
-  // ── 로딩 화면 ─────────────────────────────────────
-  if (loading) return (
-    <div style={{ textAlign:'center', padding:60, color:'#888', fontSize:16 }}>
-      ⏳ 데이터 로딩 중...
-    </div>
-  );
-
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'210px 1fr 1fr', gap:14, alignItems:'stretch' }}>
+    <div style={{ display:'grid', gridTemplateColumns:'210px 1fr 1fr', gap:14, alignItems:'start' }}>
 
       {/* ── 왼쪽 패널 ── */}
       <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
@@ -410,7 +399,7 @@ export default function Dashboard({ API }) {
         {/* 구 선택 카드 */}
         <div className="db-card">
           <div style={{ fontWeight:800, fontSize:14, color:'#1A1A1A', marginBottom:10 }}>
-            지역 선택
+            지역 선택 (Select Region)
           </div>
 
           {/* 드롭다운 */}
@@ -418,12 +407,10 @@ export default function Dashboard({ API }) {
             <div onClick={()=>setDropOpen(v=>!v)} style={{
               border:'1.5px solid #E0DEDB', borderRadius:10, padding:'8px 12px',
               display:'flex', alignItems:'center', justifyContent:'space-between',
-              cursor:'pointer', fontSize:12, fontWeight:600, color:'#555', background:'#fff',center:'center',
-            }}>구를 선택하세요
+              cursor:'pointer', fontSize:12, fontWeight:600, color:'#555', background:'#fff',
+            }}>
+              구를 선택하세요 (Select Gu)
               <span style={{ fontSize:10 }}>▼</span>
-            </div>
-            <div style={{ fontSize:11, color:'#94A3B8', marginTop:4 }}>
-              최대 3개까지 선택 가능합니다
             </div>
             {dropOpen && (
               <div style={{
@@ -505,6 +492,8 @@ export default function Dashboard({ API }) {
           </div>
         </div>
 
+
+
         {/* 요약 카드 */}
         <div className="db-summary-cards">
           <div className="db-s-card">
@@ -542,7 +531,7 @@ export default function Dashboard({ API }) {
         </div>
 
         <div className="db-chart-scroll">
-          <div className="db-chart-inner">
+          <div className="db-chart-inner" >
             <canvas ref={canvasRef} role="img" aria-label="구별 반려동물 시설 및 개체수 차트"/>
           </div>
         </div>
@@ -597,6 +586,7 @@ export default function Dashboard({ API }) {
   );
 }
 
+// ── Sub-components ─────────────────────────────────────
 function ToggleSwitch({ checked, onChange }) {
   return (
     <span className="db-toggle-switch">

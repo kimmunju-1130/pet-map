@@ -5,6 +5,18 @@ import 'leaflet/dist/leaflet.css';
 import Dashboard from './Dashboard';
 import MarketDashboard from './MarketDashboard';
 
+// ════════════════════════════════════════════════════════════
+// 상수 (컴포넌트 바깥)
+// ════════════════════════════════════════════════════════════
+//const API = "http://192.168.0.47:8000";  // 백엔드 서버 주소
+const API = process.env.REACT_APP_API_URL;
+const CAT_COLORS = {
+  '의료건강':           '#E53935',
+  '미용':              '#8E24AA',
+  '돌봄':              '#1E88E5',
+  '공원,놀이,문화시설': '#43A047',
+};
+
 const BASE_DATA = {
   '강남구': { hospital:98, park:90, transport:95, quiet:60 },
   '서초구': { hospital:96, park:92, transport:93, quiet:65 },
@@ -46,9 +58,9 @@ const GU_CENTERS = {
 };
 
 const SLIDER_CONFIG = [
-  { key:'park',      label:'공원',       icon:'🌳', color:'#4CAF50' },
-  { key:'hospital',  label:'병원',       icon:'🏥', color:'#2196F3' },
-  { key:'transport', label:'교통',       icon:'🚌', color:'#FF9800' },
+  { key:'park',      label:'공원',        icon:'🌳', color:'#4CAF50' },
+  { key:'hospital',  label:'병원',        icon:'🏥', color:'#2196F3' },
+  { key:'transport', label:'교통',        icon:'🚌', color:'#FF9800' },
   { key:'quiet',     label:'조용한 지역', icon:'🏠', color:'#9C27B0' },
 ];
 
@@ -59,6 +71,31 @@ const CARD_DETAILS = [
   { key:'transport', icon:'🚌', label:'생활 편의성' },
 ];
 
+const tooltipStyle = `
+  .leaflet-tooltip.custom-tooltip {
+    background: rgba(0,0,0,0.65) !important; color: #fff !important;
+    border: none !important; border-radius: 8px !important;
+    padding: 4px 10px !important; font-size: 13px !important;
+    font-weight: 600 !important; box-shadow: none !important; white-space: nowrap !important;
+  }
+  .leaflet-tooltip.custom-tooltip::before { display:none !important; }
+`;
+
+const tabBtnStyle = (active) => ({
+  padding: '8px 22px', border: 'none', borderRadius: 10,
+  fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all .15s',
+  background: active ? '#1A1A1A' : '#fff',
+  color:      active ? '#fff'    : '#555',
+  boxShadow:  active ? '0 2px 8px rgba(0,0,0,.18)' : 'none',
+});
+
+const SUB_TEXT = {
+  map:       '항목별 가중치 조절로 나에게 맞는 동네를 찾아보세요',
+  dashboard: '행정동별 반려동물 상권 분석 데이터',
+  market:    '데이터 기반 반려동물 시장 계층 분석 대시보드',
+};
+
+// ── 헬퍼 함수 ─────────────────────────────────────────────
 function ZoomOnClick() {
   useMapEvents({ click(e) { e.target.setView(e.latlng, e.target.getZoom() + 1); } });
   return null;
@@ -75,7 +112,7 @@ function FlyToRegion({ target }) {
 function calcScore(data, weights) {
   const total = Object.values(weights).reduce((a,b)=>a+b, 0);
   if (total === 0) return 0;
-  return Math.round(Object.keys(weights).reduce((sum,k) => sum + data[k]*weights[k], 0) / total);
+  return Math.round(Object.keys(weights).reduce((sum,k) => sum + (data[k]||0)*weights[k], 0) / total);
 }
 
 function scoreToFace(score) {
@@ -86,7 +123,7 @@ function scoreToFace(score) {
 
 function makeIcon(rank, score, hovered = false) {
   const { img, color } = scoreToFace(score);
-  const size = hovered ? 56 : 40;
+  const size   = hovered ? 56 : 40;
   const shadow = hovered ? '0 6px 20px rgba(0,0,0,.3)' : '0 2px 8px rgba(0,0,0,.2)';
   return L.divIcon({
     className: 'custom-pin',
@@ -106,49 +143,37 @@ function makeIcon(rank, score, hovered = false) {
   });
 }
 
-const tooltipStyle = `
-  .leaflet-tooltip.custom-tooltip {
-    background: rgba(0,0,0,0.65) !important; color: #fff !important;
-    border: none !important; border-radius: 8px !important;
-    padding: 4px 10px !important; font-size: 13px !important;
-    font-weight: 600 !important; box-shadow: none !important; white-space: nowrap !important;
-  }
-  .leaflet-tooltip.custom-tooltip::before { display:none !important; }
-`;
-
-// ── API URL (백엔드 연결 시 .env에 REACT_APP_API_URL 설정) ──
-const API = process.env.REACT_APP_API_URL || '';
-
-const tabBtnStyle = (active) => ({
-  padding: '8px 22px', border: 'none', borderRadius: 10,
-  fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all .15s',
-  background: active ? '#1A1A1A' : '#fff',
-  color:      active ? '#fff'    : '#555',
-  boxShadow:  active ? '0 2px 8px rgba(0,0,0,.18)' : 'none',
-});
-
-const SUB_TEXT = {
-  map:       '항목별 가중치 조절로 나에게 맞는 동네를 찾아보세요',
-  dashboard: '행정동별 반려동물 상권 분석 데이터',
-  market:    '데이터 기반 반려동물 시장 계층 분석 대시보드',
-};
-
+// ════════════════════════════════════════════════════════════
+// 메인 컴포넌트
+// ════════════════════════════════════════════════════════════
 export default function App() {
-  const [tab, setTab] = useState('map');
 
-  const [geojson, setGeojson]               = useState(null);
-  const [geoKey, setGeoKey]                 = useState(0);
-  const [weights, setWeights]               = useState({ park:3, hospital:3, transport:3, quiet:3 });
+  // ── 상태 선언 (모두 컴포넌트 안에) ──────────────────────
+  const [tab,            setTab]            = useState('map');
+  const [geojson,        setGeojson]        = useState(null);
+  const [geoKey,         setGeoKey]         = useState(0);
+  const [weights,        setWeights]        = useState({ park:3, hospital:3, transport:3, quiet:3 });
   const [appliedWeights, setAppliedWeights] = useState({ park:3, hospital:3, transport:3, quiet:3 });
-  const [scores, setScores]                 = useState({});
-  const [topList, setTopList]               = useState([]);
-  const [selected, setSelected]             = useState(null);
-  const [showFormula, setShowFormula] = useState(false);
+  const [scores,         setScores]         = useState({});
+  const [topList,        setTopList]        = useState([]);
+  const [selected,       setSelected]       = useState(null);
+  const [showFormula,    setShowFormula]     = useState(false);
+  const [mongoMarkers,   setMongoMarkers]   = useState([]);   // ✅ 컴포넌트 안
+  const [showMongo,      setShowMongo]      = useState(false); // ✅ 컴포넌트 안
 
+  // ── GeoJSON 로드 ─────────────────────────────────────────
   useEffect(() => {
-    fetch('/seoul_gu.geojson').then(r=>r.json()).then(d=>{ setGeojson(d); setGeoKey(k=>k+1); });
+    fetch(`/seoul_gu.geojson`)
+      .then(r => r.json())
+      .then(d => { setGeojson(d); setGeoKey(k=>k+1); })
+      .catch(() => {
+        fetch('/seoul_gu.geojson')
+          .then(r => r.json())
+          .then(d => { setGeojson(d); setGeoKey(k=>k+1); });
+      });
   }, []);
 
+  // ── 점수 계산 ─────────────────────────────────────────────
   useEffect(() => {
     const s = {};
     Object.entries(BASE_DATA).forEach(([n,d]) => { s[n] = calcScore(d, appliedWeights); });
@@ -157,8 +182,49 @@ export default function App() {
     setGeoKey(k=>k+1);
   }, [appliedWeights]);
 
+  // ── 함수 정의 (모두 컴포넌트 안에) ──────────────────────
+
+  const handleRecommend = () => {
+    fetch(`${API}/api/recommend`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(weights),
+    })
+      .then(r => r.json())
+      .then(data => {
+        const s = {};
+        data.forEach(d => { s[d.name] = d.score; });
+        setScores(s);
+        setTopList(data.slice(0,5).map(d => [d.name, d.score]));
+        setGeoKey(k=>k+1);
+      })
+      .catch(() => setAppliedWeights({...weights}));
+  };
+
+  const loadMongoFacilities = () => {
+    fetch(`${API}/api/mongo/facilities?limit=2000`)
+      .then(r => r.json())
+      .then(res => {
+        setMongoMarkers(res.data || []);
+        setShowMongo(true);
+        console.log(`✅ MongoDB 시설 ${res.count}건 로드`);
+      })
+      .catch(err => console.error('MongoDB 로드 실패:', err));
+  };
+
+  const loadFacilitiesMap = (guName) => {
+    fetch(`${API}/api/facilities/map/${encodeURIComponent(guName)}`)
+      .then(r => r.json())
+      .then(res => {
+        setMongoMarkers(res.data || []);
+        setShowMongo(true);
+        console.log(`✅ ${guName} 시설 ${res.matched}건 표시`);
+      })
+      .catch(err => console.error('시설 로드 실패:', err));
+  };
+
   const style = (feature) => {
-    const name = feature.properties.SIG_KOR_NM || feature.properties.name;
+    const name  = feature.properties.SIG_KOR_NM || feature.properties.name;
     const score = scores[name] || 60;
     return {
       fillColor: score>=88 ? '#43A047' : score>=80 ? '#81C784' : score>=72 ? '#C8E6C9' : '#E8F5E9',
@@ -169,24 +235,29 @@ export default function App() {
   const onEachFeature = (feature, layer) => {
     const name = feature.properties.SIG_KOR_NM || feature.properties.name;
     layer.on({
-      click: () => setSelected({ name, score: scores[name], ...BASE_DATA[name] }),
+      click: () => {
+        const data = BASE_DATA[name] || {};   // ✅ BASE_DATA 사용
+        setSelected({ name, score: scores[name], ...data });
+        loadFacilitiesMap(name);
+      },
       mouseover: e => e.target.setStyle({ fillOpacity:0.8, weight:2, color:'#555' }),
       mouseout:  e => e.target.setStyle({ fillOpacity:0.55, weight:1, color:'#aaa' }),
     });
   };
 
+  // ── 렌더링 ───────────────────────────────────────────────
   return (
     <div style={{ fontFamily:'sans-serif', background:'#E9E9E9', minHeight:'100vh', padding:'16px 20px' }}>
       <style>{tooltipStyle}</style>
 
-      {/* ── 탭 전환 버튼 ── */}
+      {/* 탭 */}
       <div style={{ display:'flex', justifyContent:'center', gap:8, marginBottom:16 }}>
         <button style={tabBtnStyle(tab==='map')}       onClick={() => setTab('map')}>🗺️ 거주지 추천 지도</button>
         <button style={tabBtnStyle(tab==='dashboard')} onClick={() => setTab('dashboard')}>📊 상권 분석 대시보드</button>
         <button style={tabBtnStyle(tab==='market')}    onClick={() => setTab('market')}>📈 시장 분석</button>
       </div>
 
-      {/* ── 공통 헤더 (세 탭 동일) ── */}
+      {/* 헤더 */}
       <div style={{ textAlign:'center', marginBottom:16 }}>
         <div style={{ fontSize:60, fontWeight:800, color:'#1A1A1A', display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}>
           <img src="/MAIN.png" alt="강아지" style={{ width:130, height:120, objectFit:'contain' }}/>
@@ -196,12 +267,12 @@ export default function App() {
         <p style={{ color:'#888', fontSize:12, marginTop:4 }}>{SUB_TEXT[tab]}</p>
       </div>
 
-      {/* ── 거주지 추천 지도 ── */}
+      {/* 거주지 추천 지도 */}
       {tab === 'map' && (
         <>
           <div style={{ display:'grid', gridTemplateColumns:'280px 1fr', gap:14, marginBottom:14 }}>
 
-            {/* 슬라이더 */}
+            {/* 슬라이더 패널 */}
             <div style={{ background:'#fff', borderRadius:20, padding:20, boxShadow:'0 2px 10px rgba(0,0,0,.07)' }}>
               <div style={{ fontSize:16, fontWeight:700, marginBottom:16, color:'#222' }}>⚖️ 가중치 설정</div>
               {SLIDER_CONFIG.map(({ key, label, icon, color }) => (
@@ -222,20 +293,30 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              <button
-                onClick={()=>setAppliedWeights({...weights})}
+
+              <button onClick={handleRecommend}
                 style={{ width:'100%', padding:'11px', background:'#333', color:'#fff',
-                  border:'none', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', marginTop:4, letterSpacing:'.5px' }}>
+                  border:'none', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', marginTop:4 }}>
                 🔍 나에게 맞는 거주지 찾기
               </button>
-              <button
-                onClick={() => setShowFormula(true)}
+
+              <button onClick={() => setShowFormula(true)}
                 style={{ width:'100%', padding:'11px', background:'#F8F8F8', color:'#333',
                   border:'2px solid #E0E0E0', borderRadius:12, fontSize:14, fontWeight:700,
-                  cursor:'pointer', marginTop:8, display:'flex', alignItems:'center',
-                  justifyContent:'center', gap:8 }}>
+                  cursor:'pointer', marginTop:8, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
                 <img src="/bone.png" alt="bone" style={{ width:20, height:20, objectFit:'contain' }}/>
                 가중치 계산 수식 보기
+              </button>
+
+              <button
+                onClick={showMongo
+                  ? () => { setShowMongo(false); setMongoMarkers([]); }
+                  : loadMongoFacilities}
+                style={{ width:'100%', padding:'11px', marginTop:8,
+                  background: showMongo ? '#E53935' : '#1565C0',
+                  color:'#fff', border:'none', borderRadius:12,
+                  fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                {showMongo ? '📍 시설 숨기기' : '📍 반려동물 시설 표시'}
               </button>
             </div>
 
@@ -254,6 +335,7 @@ export default function App() {
                   <ZoomOnClick/>
                   <FlyToRegion target={selected?.name}/>
                   {geojson && <GeoJSON key={geoKey} data={geojson} style={style} onEachFeature={onEachFeature}/>}
+
                   {Object.entries(scores).map(([name, score]) => {
                     const pos = GU_CENTERS[name];
                     if (!pos || score < 78) return null;
@@ -265,8 +347,9 @@ export default function App() {
                         pathOptions={{ color:'none', fillColor:'#FF3D00', fillOpacity:0.15 }}/>,
                     ];
                   })}
+
                   {topList.map(([name], i) => {
-                    const pos = GU_CENTERS[name];
+                    const pos   = GU_CENTERS[name];
                     const score = scores[name];
                     const { img, color, label } = scoreToFace(score);
                     if (!pos) return null;
@@ -288,6 +371,39 @@ export default function App() {
                       </Marker>
                     );
                   })}
+
+                  {showMongo && mongoMarkers.map((f, i) => (
+                    <CircleMarker
+                      key={`fac-${i}`}
+                      center={[f.lat, f.lng]}
+                      radius={6}
+                      pathOptions={{
+                        color:       CAT_COLORS[f.category] || '#FF5722',
+                        fillColor:   CAT_COLORS[f.category] || '#FF5722',
+                        fillOpacity: 0.8,
+                        weight:      1.5,
+                      }}
+                    >
+                      <Popup>
+                        <div style={{ fontSize:13, minWidth:180 }}>
+                          <div style={{ fontWeight:700, marginBottom:4 }}>{f.name || '시설명 없음'}</div>
+                          <div style={{ color: CAT_COLORS[f.category] || '#666', fontWeight:600, marginBottom:4 }}>
+                            {f.category || ''}{f.category_sub ? ` · ${f.category_sub}` : ''}
+                          </div>
+                          <div style={{ color:'#555', fontSize:11 }}>{f.address || ''}</div>
+                          <div style={{ color:'#888', fontSize:11 }}>{f.phone || ''}</div>
+                          {(f.indoor_yn || f.outdoor_yn || f.parking_yn) && (
+                            <div style={{ marginTop:6, fontSize:11, display:'flex', gap:8 }}>
+                              {f.indoor_yn  && <span>실내: {f.indoor_yn}</span>}
+                              {f.outdoor_yn && <span>실외: {f.outdoor_yn}</span>}
+                              {f.parking_yn && <span>주차: {f.parking_yn}</span>}
+                            </div>
+                          )}
+                        </div>
+                      </Popup>
+                    </CircleMarker>
+                  ))}
+
                 </MapContainer>
               </div>
             </div>
@@ -298,9 +414,9 @@ export default function App() {
             <div style={{ fontSize:15, fontWeight:700, marginBottom:14, color:'#222' }}>🏆 추천 지역 정보 제공</div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10 }}>
               {topList.map(([name, score], i) => {
-                const d = BASE_DATA[name];
+                const d = BASE_DATA[name] || { hospital:0, park:0, transport:0, quiet:0 };
                 return (
-                  <div key={name} onClick={()=>setSelected({name,score,...d})}
+                  <div key={name} onClick={() => setSelected({name,score,...d})}
                     style={{
                       background: selected?.name===name ? '#FFF3E0' : '#FAFAFA',
                       borderRadius:14, padding:14, cursor:'pointer',
@@ -313,13 +429,9 @@ export default function App() {
                         display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, flexShrink:0 }}>{i+1}</div>
                       <span style={{ fontWeight:700, fontSize:13 }}>{name}</span>
                     </div>
-                    {/* ← 이 줄 추가 */}
-                    <div style={{ fontSize:10, color:'#94A3B8', marginBottom:6 }}>
-                      🗺️ 클릭하면 지도에서 확인
-                    </div>
                     <div style={{ fontSize:24, fontWeight:800, color:i===0?'#E53935':'#333', marginBottom:8 }}>{score}점</div>
                     <div style={{ borderTop:'1px solid #F0F0F0', paddingTop:8 }}>
-                      {CARD_DETAILS.map(({key,icon,label})=>(
+                      {CARD_DETAILS.map(({key,icon,label}) => (
                         <div key={key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, color:'#666', marginBottom:3 }}>
                           <span>{icon} {label}</span>
                           <span style={{ fontWeight:700, color:'#444' }}>{d[key]}</span>
@@ -334,70 +446,12 @@ export default function App() {
         </>
       )}
 
-      {/* ── 상권 분석 대시보드 ── */}
+      {/* ✅ 추가된 부분: 상권 분석 대시보드 */}
       {tab === 'dashboard' && <Dashboard API={API} />}
 
-      {/* ── 시장 분석 ── */}
-      {tab === 'market' && <MarketDashboard />}
-      {showFormula && (
-      <div onClick={() => setShowFormula(false)} style={{
-        position:'fixed', inset:0, background:'rgba(0,0,0,0.5)',
-        display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
-        <div onClick={e => e.stopPropagation()} style={{
-          background:'#fff', borderRadius:20, padding:32, width:'min(680px,90vw)',
-          boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+      {/* ✅ 추가된 부분: 시장 분석 */}
+      {tab === 'market' && <MarketDashboard API={API} />}
 
-          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:20 }}>
-            <img src="/bone.png" alt="bone" style={{ width:28, height:28, objectFit:'contain' }}/>
-            <span style={{ fontSize:18, fontWeight:900 }}>가중치 계산 수식</span>
-          </div>
-
-          {/* 수식 */}
-          <div style={{ background:'#F8F8F8', borderRadius:14, padding:20, marginBottom:16, textAlign:'center' }}>
-            <div style={{ fontSize:16, fontWeight:700, color:'#333', marginBottom:8 }}>점수 계산식</div>
-            <div style={{ fontSize:20, fontWeight:900, color:'#1A1A1A', fontFamily:'monospace' }}>
-              Score = Σ ( 항목값 × 가중치 ) / Σ 가중치
-            </div>
-          </div>
-
-          {/* 설명 */}
-          <div style={{ fontSize:13, color:'#555', lineHeight:1.8, marginBottom:16 }}>
-            <div style={{ marginBottom:8 }}>
-              각 항목(공원·병원·교통·조용한 지역)의 기본 점수에 슬라이더로 설정한 가중치를 곱한 후,<br/>
-              전체 가중치의 합으로 나눠 최종 점수를 산출합니다.
-            </div>
-            <div style={{ background:'#FFF3E0', borderRadius:10, padding:12, fontFamily:'monospace', fontSize:12, textAlign:'center' }}>
-              예) 공원(90)×3 + 병원(98)×5 + 교통(95)×2 + 조용함(60)×1<br/>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;────────────────────────────── = <b>89점</b><br/>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3 + 5 + 2 + 1
-            </div>
-          </div>
-
-          {/* 항목 설명 */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:20 }}>
-            {[
-              { icon:'🌳', label:'공원/산책로',    key:'park' },
-              { icon:'🏥', label:'동물병원 접근성', key:'hospital' },
-              { icon:'🚌', label:'생활 편의성',    key:'transport' },
-              { icon:'🏠', label:'조용한 지역',    key:'quiet' },
-            ].map(({ icon, label, key }) => (
-              <div key={key} style={{ background:'#F8F8F8', borderRadius:10, padding:'8px 12px',
-                display:'flex', alignItems:'center', gap:8, fontSize:13 }}>
-                <span>{icon}</span>
-                <span style={{ fontWeight:600 }}>{label}</span>
-                <span style={{ marginLeft:'auto', fontWeight:800, color:'#333' }}>{weights[key]}</span>
-              </div>
-            ))}
-          </div>
-
-          <button onClick={() => setShowFormula(false)} style={{
-            width:'100%', padding:'11px', background:'#1A1A1A', color:'#fff',
-            border:'none', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer' }}>
-            닫기
-          </button>
-        </div>
-      </div>
-    )}
     </div>
   );
 }
